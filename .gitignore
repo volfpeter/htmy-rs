@@ -1,0 +1,15 @@
+/target
+/dist
+/build
+uv.lock
+*.so
+*.pyd
+*.dll
+*.egg-info
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.python-version
+*.pyc

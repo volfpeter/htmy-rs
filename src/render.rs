@@ -29,7 +29,7 @@ struct Session {
     pending: Vec<Pending>,
     string_formatter: Py<PyAny>,
     use_default_sf: bool,
-    types: PyTypes,
+    types: &'static PyTypes,
 }
 
 fn parts_mut(sess: &mut Session, dest: Option<usize>) -> &mut Vec<Part> {

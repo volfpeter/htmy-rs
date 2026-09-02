@@ -143,8 +143,8 @@ fn write_open(
     buf.push('<');
     buf.push_str(name);
     buf.push(' ');
-    let fmt = python_formatter(&sess.types, context)?;
-    write_props(&mut buf, py, &sess.types, props, fmt.as_ref())?;
+    let fmt = python_formatter(sess.types, context)?;
+    write_props(&mut buf, py, sess.types, props, fmt.as_ref())?;
     if void {
         buf.push_str("/>");
     } else {
@@ -278,7 +278,7 @@ fn walk_item(
         return write_void(sess, dest, py, tag, context);
     }
 
-    if is_safestr(&sess.types, obj)? {
+    if is_safestr(sess.types, obj)? {
         let s: String = obj.extract()?;
         return write_text(sess, dest, py, &s, true, obj);
     }
@@ -312,7 +312,7 @@ fn handle_component(
 
     if obj.hasattr("htmy_context")? {
         let extra = obj.call_method0("htmy_context")?;
-        if is_awaitable(&sess.types, &extra)? {
+        if is_awaitable(sess.types, &extra)? {
             let slot = push_hole(sess, dest);
             sess.pending.push(Pending {
                 slot,
@@ -345,7 +345,7 @@ fn handle_component(
     }
 
     let result = obj.call_method1("htmy", (ctx_ref.bind(py),))?;
-    if is_awaitable(&sess.types, &result)? {
+    if is_awaitable(sess.types, &result)? {
         let slot = push_hole(sess, dest);
         sess.pending.push(Pending {
             slot,
@@ -448,7 +448,7 @@ impl RenderSession {
                         return Err(invalid_type(obj_b));
                     }
                     let htmy_result = obj_b.call_method1("htmy", (ctx_owned.bind(py),))?;
-                    if is_awaitable(&self.inner.types, &htmy_result)? {
+                    if is_awaitable(self.inner.types, &htmy_result)? {
                         self.inner.pending.push(Pending {
                             slot: p.slot,
                             awaitable: htmy_result.unbind(),

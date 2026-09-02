@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
@@ -8,6 +6,8 @@ mod intern;
 mod render;
 mod tag;
 
+/// The Python objects this module interoperates with.
+#[derive(Clone)]
 pub(crate) struct PyTypes {
     pub safestr: Py<PyAny>,
     pub xbool: Py<PyAny>,
@@ -21,35 +21,40 @@ pub(crate) struct PyTypes {
     pub isawaitable: Py<PyAny>,
 }
 
-static TYPES: OnceLock<PyTypes> = OnceLock::new();
+/// Name of the module attribute that stores the resolved [`PyTypes`].
+const TYPES_ATTR: &str = "_types";
 
-pub(crate) fn types() -> &'static PyTypes {
-    TYPES.get().expect("htmy_rs.configure() was not called")
+/// Opaque capsule that exposes [`PyTypes`] to Python as a single module attribute.
+#[pyclass(module = "htmy_rs", name = "_Types")]
+struct TypesCell {
+    inner: PyTypes,
 }
 
-#[pyfunction]
-fn configure(
-    py: Python<'_>,
-    safestr: Bound<'_, PyAny>,
-    xbool: Bound<'_, PyAny>,
-    formatter: Bound<'_, PyAny>,
-    xml_format_string: Bound<'_, PyAny>,
-) -> PyResult<()> {
+fn resolve_types(py: Python<'_>) -> PyResult<PyTypes> {
+    let htmy = py.import("htmy.core")?;
+    let xbool_true = htmy.getattr("XBool")?.getattr("true")?.unbind();
     let datetime_mod = py.import("datetime")?;
-    let types = PyTypes {
-        xbool_true: xbool.getattr("true")?.unbind(),
-        safestr: safestr.unbind(),
-        xbool: xbool.unbind(),
-        formatter: formatter.unbind(),
-        xml_format_string: xml_format_string.unbind(),
+    Ok(PyTypes {
+        safestr: htmy.getattr("SafeStr")?.unbind(),
+        xbool: htmy.getattr("XBool")?.unbind(),
+        xbool_true,
+        formatter: htmy.getattr("Formatter")?.unbind(),
+        xml_format_string: htmy.getattr("xml_format_string")?.unbind(),
         date: datetime_mod.getattr("date")?.unbind(),
         datetime: datetime_mod.getattr("datetime")?.unbind(),
         json_dumps: py.import("json")?.getattr("dumps")?.unbind(),
         chainmap: py.import("collections")?.getattr("ChainMap")?.unbind(),
         isawaitable: py.import("inspect")?.getattr("isawaitable")?.unbind(),
-    };
-    let _ = TYPES.set(types);
-    Ok(())
+    })
+}
+
+fn module_types(m: &Bound<'_, PyModule>) -> PyResult<PyTypes> {
+    let cell = m.getattr(TYPES_ATTR)?.cast_into::<TypesCell>()?;
+    Ok(cell.borrow().inner.clone())
+}
+
+pub(crate) fn types(py: Python<'_>) -> PyResult<PyTypes> {
+    module_types(&py.import("htmy_rs._native")?)
 }
 
 #[pyfunction]
@@ -68,8 +73,9 @@ fn quoteattr(s: &str) -> String {
 }
 
 #[pyfunction]
-fn format_attr(py: Python<'_>, name: &str, value: Bound<'_, PyAny>) -> PyResult<String> {
-    match format::format_attr(py, name, &value)? {
+#[pyo3(pass_module)]
+fn format_attr(m: &Bound<'_, PyModule>, name: &str, value: Bound<'_, PyAny>) -> PyResult<String> {
+    match format::format_attr(m.py(), &module_types(m)?, name, &value)? {
         Some(s) => Ok(s),
         None => Ok(String::new()),
     }
@@ -77,10 +83,13 @@ fn format_attr(py: Python<'_>, name: &str, value: Bound<'_, PyAny>) -> PyResult<
 
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    let py = m.py();
+    let t = resolve_types(py)?;
+    let cell = Py::new(py, TypesCell { inner: t })?;
+    m.add(TYPES_ATTR, cell)?;
     m.add_class::<tag::TagImpl>()?;
     m.add_class::<tag::TagWithPropsImpl>()?;
     m.add_class::<render::RenderSession>()?;
-    m.add_function(wrap_pyfunction!(configure, m)?)?;
     m.add_function(wrap_pyfunction!(format_name, m)?)?;
     m.add_function(wrap_pyfunction!(xml_escape_text, m)?)?;
     m.add_function(wrap_pyfunction!(quoteattr, m)?)?;

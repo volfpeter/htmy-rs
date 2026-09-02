@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 
 use crate::intern::{Child, Separator, intern_children, intern_separator};
-use crate::types;
+use crate::{PyTypes, types};
 
 pub struct TagInner {
     pub name: String,
@@ -32,10 +32,11 @@ fn props_vec(props: &Bound<'_, PyDict>) -> PyResult<Vec<(String, Py<PyAny>)>> {
 
 fn format_attrs(
     py: Python<'_>,
+    types: &PyTypes,
     context: &Bound<'_, PyAny>,
     props: &[(String, Py<PyAny>)],
 ) -> PyResult<String> {
-    let formatter_cls = types().formatter.bind(py);
+    let formatter_cls = types.formatter.bind(py);
     let default = formatter_cls.call0()?;
     let formatter = context.call_method1("get", (formatter_cls, default))?;
     let mut parts = Vec::with_capacity(props.len());
@@ -48,8 +49,8 @@ fn format_attrs(
     Ok(parts.join(" "))
 }
 
-fn safestr(py: Python<'_>, s: String) -> PyResult<Py<PyAny>> {
-    Ok(types().safestr.bind(py).call1((s,))?.unbind())
+fn safestr(py: Python<'_>, types: &PyTypes, s: String) -> PyResult<Py<PyAny>> {
+    Ok(types.safestr.bind(py).call1((s,))?.unbind())
 }
 
 #[pyclass(module = "htmy_rs", name = "TagImpl")]
@@ -66,12 +67,13 @@ impl TagImpl {
         children: Bound<'_, PyAny>,
         child_separator: Bound<'_, PyAny>,
     ) -> PyResult<Self> {
+        let types = types(props.py())?;
         Ok(Self {
             inner: Arc::new(TagInner {
                 name,
                 props: props_vec(&props)?,
-                children: intern_children(&children)?,
-                separator: intern_separator(&child_separator)?,
+                children: intern_children(&types, &children)?,
+                separator: intern_separator(&types, &child_separator)?,
                 py_props: props.unbind(),
                 py_children: children.unbind(),
                 py_separator: child_separator.unbind(),
@@ -101,9 +103,10 @@ impl TagImpl {
 
     fn htmy(&self, py: Python<'_>, context: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let inner = &self.inner;
-        let attrs = format_attrs(py, &context, &inner.props)?;
-        let open = safestr(py, format!("<{} {}>", inner.name, attrs))?;
-        let close = safestr(py, format!("</{}>", inner.name))?;
+        let types = types(py)?;
+        let attrs = format_attrs(py, &types, &context, &inner.props)?;
+        let open = safestr(py, &types, format!("<{} {}>", inner.name, attrs))?;
+        let close = safestr(py, &types, format!("</{}>", inner.name))?;
 
         let mut result: Vec<Py<PyAny>> = Vec::new();
         result.push(open);
@@ -165,7 +168,8 @@ impl TagWithPropsImpl {
 
     fn htmy(&self, py: Python<'_>, context: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let inner = &self.inner;
-        let attrs = format_attrs(py, &context, &inner.props)?;
-        safestr(py, format!("<{} {}/>", inner.name, attrs))
+        let types = types(py)?;
+        let attrs = format_attrs(py, &types, &context, &inner.props)?;
+        safestr(py, &types, format!("<{} {}/>", inner.name, attrs))
     }
 }

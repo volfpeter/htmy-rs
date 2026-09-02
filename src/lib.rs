@@ -48,13 +48,32 @@ fn resolve_types(py: Python<'_>) -> PyResult<PyTypes> {
     })
 }
 
-fn module_types(m: &Bound<'_, PyModule>) -> PyResult<PyTypes> {
-    let cell = m.getattr(TYPES_ATTR)?.cast_into::<TypesCell>()?;
-    Ok(cell.borrow().inner.clone())
+/// Lazily resolves and caches the [`PyTypes`] as the module's hidden `TYPES_ATTR` attribute.
+///
+/// Resolution is deferred from module initialization to first use, because it imports
+/// `htmy.core`: `htmy` may be mid-import while this module is being initialized (the two
+/// packages optionally reference each other), and module initialization must not trigger
+/// the import of a partially initialized `htmy`.
+fn resolve_and_store_types(m: &Bound<'_, PyModule>) -> PyResult<PyTypes> {
+    if let Ok(attr) = m.getattr(TYPES_ATTR) {
+        let cell = attr.cast_into::<TypesCell>()?;
+        return Ok(cell.borrow().inner.clone());
+    }
+    let inner = resolve_types(m.py())?;
+    m.setattr(
+        TYPES_ATTR,
+        Py::new(
+            m.py(),
+            TypesCell {
+                inner: inner.clone(),
+            },
+        )?,
+    )?;
+    Ok(inner)
 }
 
 pub(crate) fn types(py: Python<'_>) -> PyResult<PyTypes> {
-    module_types(&py.import("htmy_rs._native")?)
+    resolve_and_store_types(&py.import("htmy_rs._native")?)
 }
 
 #[pyfunction]
@@ -75,7 +94,7 @@ fn quoteattr(s: &str) -> String {
 #[pyfunction]
 #[pyo3(pass_module)]
 fn format_attr(m: &Bound<'_, PyModule>, name: &str, value: Bound<'_, PyAny>) -> PyResult<String> {
-    match format::format_attr(m.py(), &module_types(m)?, name, &value)? {
+    match format::format_attr(m.py(), &resolve_and_store_types(m)?, name, &value)? {
         Some(s) => Ok(s),
         None => Ok(String::new()),
     }
@@ -83,10 +102,6 @@ fn format_attr(m: &Bound<'_, PyModule>, name: &str, value: Bound<'_, PyAny>) -> 
 
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = m.py();
-    let t = resolve_types(py)?;
-    let cell = Py::new(py, TypesCell { inner: t })?;
-    m.add(TYPES_ATTR, cell)?;
     m.add_class::<tag::TagImpl>()?;
     m.add_class::<tag::TagWithPropsImpl>()?;
     m.add_class::<render::RenderSession>()?;

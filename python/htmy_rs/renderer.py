@@ -4,9 +4,18 @@ from collections import ChainMap
 from typing import TYPE_CHECKING
 
 from anyio import create_task_group
-from htmy.core import xml_format_string as xml_format_string
 
 from htmy_rs._native import RenderSession as RenderSession
+
+# This module must not import `htmy` at module level: `htmy` optionally imports the
+# default renderer from here, so a module level `htmy` import would deadlock the
+# two packages' initialization when `htmy_rs` is imported first.
+
+
+def _default_string_formatter(value: str) -> str:
+    """Placeholder default `string_formatter` that resolves to the real default lazily."""
+    return value
+
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -38,8 +47,12 @@ class Renderer:
         self,
         default_context: Context | None = None,
         *,
-        string_formatter: Callable[[str], str] = xml_format_string,
+        string_formatter: Callable[[str], str] = _default_string_formatter,
     ) -> None:
+        if string_formatter is _default_string_formatter:
+            from htmy.core import xml_format_string
+
+            string_formatter = xml_format_string
         self._default_context: Context = {} if default_context is None else default_context
         self._string_formatter = string_formatter
 

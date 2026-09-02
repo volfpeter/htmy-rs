@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyString, PyTuple};
 
+use crate::PyTypes;
 use crate::tag::{TagImpl, TagWithPropsImpl};
-use crate::types;
 
 pub enum Child {
     Tag(Py<TagImpl>),
@@ -22,11 +22,11 @@ pub enum Separator {
     Opaque(Py<PyAny>),
 }
 
-pub fn is_safestr(obj: &Bound<'_, PyAny>) -> PyResult<bool> {
-    obj.is_instance(types().safestr.bind(obj.py()))
+pub fn is_safestr(types: &PyTypes, obj: &Bound<'_, PyAny>) -> PyResult<bool> {
+    obj.is_instance(types.safestr.bind(obj.py()))
 }
 
-pub fn intern_one(obj: &Bound<'_, PyAny>) -> PyResult<Child> {
+pub fn intern_one(types: &PyTypes, obj: &Bound<'_, PyAny>) -> PyResult<Child> {
     if obj.is_none() {
         return Ok(Child::Skip);
     }
@@ -36,7 +36,7 @@ pub fn intern_one(obj: &Bound<'_, PyAny>) -> PyResult<Child> {
     if let Ok(tag) = obj.cast::<TagWithPropsImpl>() {
         return Ok(Child::TagWithProps(tag.clone().unbind()));
     }
-    if is_safestr(obj)? {
+    if is_safestr(types, obj)? {
         let s: String = obj.extract()?;
         return Ok(Child::Text {
             s,
@@ -55,19 +55,19 @@ pub fn intern_one(obj: &Bound<'_, PyAny>) -> PyResult<Child> {
     Ok(Child::Opaque(obj.clone().unbind()))
 }
 
-pub fn intern_children(children: &Bound<'_, PyAny>) -> PyResult<Vec<Child>> {
+pub fn intern_children(types: &PyTypes, children: &Bound<'_, PyAny>) -> PyResult<Vec<Child>> {
     let mut out = Vec::new();
     for item in children.try_iter()? {
-        out.push(intern_one(&item?)?);
+        out.push(intern_one(types, &item?)?);
     }
     Ok(out)
 }
 
-pub fn intern_separator(sep: &Bound<'_, PyAny>) -> PyResult<Separator> {
+pub fn intern_separator(types: &PyTypes, sep: &Bound<'_, PyAny>) -> PyResult<Separator> {
     if sep.is_none() {
         return Ok(Separator::None);
     }
-    if sep.is_instance_of::<PyString>() && !is_safestr(sep)? {
+    if sep.is_instance_of::<PyString>() && !is_safestr(types, sep)? {
         let s = sep.cast::<PyString>()?.to_str()?;
         if s == "\n" {
             return Ok(Separator::NewlinePad);

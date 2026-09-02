@@ -5,7 +5,7 @@ use pyo3::types::{PyList, PyString};
 use crate::format::{write_props, xml_escape};
 use crate::intern::{Child, Separator, is_safestr, is_sequence};
 use crate::tag::{TagImpl, TagWithPropsImpl};
-use crate::types;
+use crate::{PyTypes, types};
 
 enum Part {
     Str(String),
@@ -29,6 +29,7 @@ struct Session {
     pending: Vec<Pending>,
     string_formatter: Py<PyAny>,
     use_default_sf: bool,
+    types: PyTypes,
 }
 
 fn parts_mut(sess: &mut Session, dest: Option<usize>) -> &mut Vec<Part> {
@@ -66,12 +67,15 @@ fn flatten(parts: &[Part], slots: &[Vec<Part>], out: &mut String) {
     }
 }
 
-fn is_awaitable(obj: &Bound<'_, PyAny>) -> PyResult<bool> {
-    types().isawaitable.bind(obj.py()).call1((obj,))?.extract()
+fn is_awaitable(types: &PyTypes, obj: &Bound<'_, PyAny>) -> PyResult<bool> {
+    types.isawaitable.bind(obj.py()).call1((obj,))?.extract()
 }
 
-fn python_formatter<'py>(context: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
-    let fmt = context.call_method1("get", (types().formatter.bind(context.py()),))?;
+fn python_formatter<'py>(
+    types: &PyTypes,
+    context: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let fmt = context.call_method1("get", (types.formatter.bind(context.py()),))?;
     if fmt.is_none() {
         Ok(None)
     } else {
@@ -110,7 +114,7 @@ fn emit_markup(sess: &mut Session, dest: Option<usize>, py: Python<'_>, s: &str)
         write_str(sess, dest, s);
         return Ok(());
     }
-    let safe = types().safestr.bind(py).call1((s,))?;
+    let safe = sess.types.safestr.bind(py).call1((s,))?;
     let formatted: String = sess.string_formatter.bind(py).call1((safe,))?.extract()?;
     write_str(sess, dest, &formatted);
     Ok(())
@@ -139,8 +143,8 @@ fn write_open(
     buf.push('<');
     buf.push_str(name);
     buf.push(' ');
-    let fmt = python_formatter(context)?;
-    write_props(&mut buf, py, props, fmt.as_ref())?;
+    let fmt = python_formatter(&sess.types, context)?;
+    write_props(&mut buf, py, &sess.types, props, fmt.as_ref())?;
     if void {
         buf.push_str("/>");
     } else {
@@ -274,7 +278,7 @@ fn walk_item(
         return write_void(sess, dest, py, tag, context);
     }
 
-    if is_safestr(obj)? {
+    if is_safestr(&sess.types, obj)? {
         let s: String = obj.extract()?;
         return write_text(sess, dest, py, &s, true, obj);
     }
@@ -308,7 +312,7 @@ fn handle_component(
 
     if obj.hasattr("htmy_context")? {
         let extra = obj.call_method0("htmy_context")?;
-        if is_awaitable(&extra)? {
+        if is_awaitable(&sess.types, &extra)? {
             let slot = push_hole(sess, dest);
             sess.pending.push(Pending {
                 slot,
@@ -322,7 +326,7 @@ fn handle_component(
         }
         if extra.is_truthy()? {
             ctx_owned = Some(
-                types()
+                sess.types
                     .chainmap
                     .bind(py)
                     .call1((extra, context.bind(py)))?
@@ -341,7 +345,7 @@ fn handle_component(
     }
 
     let result = obj.call_method1("htmy", (ctx_ref.bind(py),))?;
-    if is_awaitable(&result)? {
+    if is_awaitable(&sess.types, &result)? {
         let slot = push_hole(sess, dest);
         sess.pending.push(Pending {
             slot,
@@ -382,7 +386,8 @@ impl RenderSession {
         string_formatter: Bound<'_, PyAny>,
     ) -> PyResult<Self> {
         let py = component.py();
-        let use_default_sf = string_formatter.is(types().xml_format_string.bind(py));
+        let types = types(py)?;
+        let use_default_sf = string_formatter.is(types.xml_format_string.bind(py));
         let ctx = context.unbind();
         let mut sess = Session {
             root: Vec::new(),
@@ -390,6 +395,7 @@ impl RenderSession {
             pending: Vec::new(),
             string_formatter: string_formatter.unbind(),
             use_default_sf,
+            types,
         };
         if let Err(e) = walk_item(&mut sess, None, py, &component, &ctx) {
             cancel_pending(py, &sess.pending);
@@ -428,7 +434,8 @@ impl RenderSession {
                 PendingKind::Context { obj, parent } => {
                     let extra = result;
                     let ctx_owned: Py<PyAny> = if extra.is_truthy()? {
-                        types()
+                        self.inner
+                            .types
                             .chainmap
                             .bind(py)
                             .call1((&extra, parent.bind(py)))?
@@ -441,7 +448,7 @@ impl RenderSession {
                         return Err(invalid_type(obj_b));
                     }
                     let htmy_result = obj_b.call_method1("htmy", (ctx_owned.bind(py),))?;
-                    if is_awaitable(&htmy_result)? {
+                    if is_awaitable(&self.inner.types, &htmy_result)? {
                         self.inner.pending.push(Pending {
                             slot: p.slot,
                             awaitable: htmy_result.unbind(),

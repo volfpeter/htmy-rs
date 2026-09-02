@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PySet, PyString, PyTuple};
 
-use crate::types;
+use crate::PyTypes;
 
 /// Default property-name conversion. Copied from `htmy.core.Formatter._format_name`.
 pub fn format_name(name: &str) -> String {
@@ -51,10 +51,11 @@ pub fn quoteattr(s: &str) -> String {
 /// Format one attribute. `None` means skip (emit empty string in the join).
 pub fn format_attr(
     py: Python<'_>,
+    types: &PyTypes,
     name: &str,
     value: &Bound<'_, PyAny>,
 ) -> PyResult<Option<String>> {
-    match format_value(py, value)? {
+    match format_value(py, types, value)? {
         None => Ok(None),
         Some(v) => Ok(Some(format!("{}={}", format_name(name), quoteattr(&v)))),
     }
@@ -62,12 +63,16 @@ pub fn format_attr(
 
 /// Default value rules. Exact type only, same as Python `Formatter`.
 /// `None` means skip the property.
-pub fn format_value(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Option<String>> {
+pub fn format_value(
+    py: Python<'_>,
+    types: &PyTypes,
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Option<String>> {
     if value.is_none() {
         return Ok(None);
     }
 
-    let t = types();
+    let t = types;
 
     if value.get_type().is(t.xbool.bind(py)) {
         if value.is(t.xbool_true.bind(py)) {
@@ -111,6 +116,7 @@ pub fn format_value(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Option
 pub fn write_props(
     buf: &mut String,
     py: Python<'_>,
+    types: &PyTypes,
     props: &[(String, Py<PyAny>)],
     python_formatter: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
@@ -122,7 +128,7 @@ pub fn write_props(
         if let Some(fmt) = python_formatter {
             let formatted: String = fmt.call_method1("format", (name, value))?.extract()?;
             buf.push_str(&formatted);
-        } else if let Some(formatted) = format_attr(py, name, value)? {
+        } else if let Some(formatted) = format_attr(py, types, name, value)? {
             buf.push_str(&formatted);
         }
     }

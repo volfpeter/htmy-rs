@@ -15,5 +15,6 @@ def test_renderer_selection_import_order() -> None:
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
+        timeout=5,
     )
     assert result.returncode == 0, result.stderr

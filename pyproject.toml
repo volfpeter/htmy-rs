@@ -65,7 +65,8 @@ lint.select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*" = ["S101", "S603"] # S101: use of assert detected, S603: subprocess call
+"tests/**/*" = ["S101"] # S101: use of assert detected
+"tests/test_import_order.py" = ["S603"] # S603: subprocess call
 
 [tool.poe.tasks]
 format = "ruff format --check ."

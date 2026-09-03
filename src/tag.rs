@@ -72,8 +72,8 @@ impl TagImpl {
             inner: Arc::new(TagInner {
                 name,
                 props: props_vec(&props)?,
-                children: intern_children(&types, &children)?,
-                separator: intern_separator(&types, &child_separator)?,
+                children: intern_children(types, &children)?,
+                separator: intern_separator(types, &child_separator)?,
                 py_props: props.unbind(),
                 py_children: children.unbind(),
                 py_separator: child_separator.unbind(),
@@ -104,9 +104,9 @@ impl TagImpl {
     fn htmy(&self, py: Python<'_>, context: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let inner = &self.inner;
         let types = types(py)?;
-        let attrs = format_attrs(py, &types, &context, &inner.props)?;
-        let open = safestr(py, &types, format!("<{} {}>", inner.name, attrs))?;
-        let close = safestr(py, &types, format!("</{}>", inner.name))?;
+        let attrs = format_attrs(py, types, &context, &inner.props)?;
+        let open = safestr(py, types, format!("<{} {}>", inner.name, attrs))?;
+        let close = safestr(py, types, format!("</{}>", inner.name))?;
 
         let mut result: Vec<Py<PyAny>> = Vec::new();
         result.push(open);
@@ -169,7 +169,7 @@ impl TagWithPropsImpl {
     fn htmy(&self, py: Python<'_>, context: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let inner = &self.inner;
         let types = types(py)?;
-        let attrs = format_attrs(py, &types, &context, &inner.props)?;
-        safestr(py, &types, format!("<{} {}/>", inner.name, attrs))
+        let attrs = format_attrs(py, types, &context, &inner.props)?;
+        safestr(py, types, format!("<{} {}/>", inner.name, attrs))
     }
 }
